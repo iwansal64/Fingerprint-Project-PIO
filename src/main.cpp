@@ -1,5 +1,12 @@
 #include <Adafruit_Fingerprint.h>
 #define BTN1 D5
+#define BTN2 D6
+
+#define LED1 D1
+#define LED2 D4
+#define LED3 D7
+
+#include <tuple>
 
 #if (defined(__AVR__) || defined(ESP8266)) && !defined(__AVR_ATmega2560__)
 // For UNO and others without hardware serial, we must use software serial...
@@ -17,9 +24,10 @@ SoftwareSerial mySerial(D2, D3);
 
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 uint8_t id = 1;
-bool is_enroll;
-bool is_btn1_down = false;
-uint64_t time_btn1_down = 0;
+uint8_t mode = 0;
+bool is_btn_down = false;
+uint64_t time_btn_down = 0;
+bool is_ready_for_next = true;
 
 void setup()
 {
@@ -65,7 +73,8 @@ void setup()
   pinMode(BTN1, INPUT);
 }
 
-uint8_t getFingerprintEnroll()
+// =================== USER FUNCTIONSSSSSSSS ===================================================>>>>>>>>>>>>>>>>>>>>>>>>>>>> //
+std::tuple<bool, uint8_t> getFingerprintEnroll()
 {
 
   int p = -1;
@@ -75,19 +84,19 @@ uint8_t getFingerprintEnroll()
     switch (p)
     {
     case FINGERPRINT_OK:
-      Serial.println("Image taken");
+      Serial.println("Fingerprint terdeteksi");
       break;
     case FINGERPRINT_NOFINGER:
-      return 1;
+      return std::make_tuple(false, p);
     case FINGERPRINT_PACKETRECIEVEERR:
       Serial.println("Communication error");
-      return 1;
+      return std::make_tuple(false, p);
     case FINGERPRINT_IMAGEFAIL:
       Serial.println("Imaging error");
-      return 1;
+      return std::make_tuple(false, p);
     default:
       Serial.println("Unknown error");
-      return 1;
+      return std::make_tuple(false, p);
     }
   }
 
@@ -97,27 +106,25 @@ uint8_t getFingerprintEnroll()
   switch (p)
   {
   case FINGERPRINT_OK:
-    Serial.println("Image converted");
+    Serial.println("Fingerprint dikonvesi (ntah bagaimana maksudnya)");
     break;
   case FINGERPRINT_IMAGEMESS:
-    Serial.println("Image too messy");
-    return p;
+    return std::make_tuple(false, p);
   case FINGERPRINT_PACKETRECIEVEERR:
-    Serial.println("Communication error");
-    return p;
+    return std::make_tuple(false, p);
   case FINGERPRINT_FEATUREFAIL:
-    Serial.println("Could not find fingerprint features");
-    return p;
+    return std::make_tuple(false, p);
   case FINGERPRINT_INVALIDIMAGE:
-    Serial.println("Could not find fingerprint features");
-    return p;
+    return std::make_tuple(false, p);
   default:
-    Serial.println("Unknown error");
-    return p;
+    return std::make_tuple(false, p);
   }
 
-  Serial.println("Remove finger");
-  delay(2000);
+  Serial.println("Angkat jari pls..");
+
+  while (finger.getImage() != FINGERPRINT_NOFINGER)
+    ;
+
   p = 0;
   while (p != FINGERPRINT_NOFINGER)
   {
@@ -126,27 +133,24 @@ uint8_t getFingerprintEnroll()
   Serial.print("ID ");
   Serial.println(id);
   p = -1;
-  Serial.println("Place same finger again");
+  Serial.println("letakkan jari yang sama");
   while (p != FINGERPRINT_OK)
   {
     p = finger.getImage();
     switch (p)
     {
     case FINGERPRINT_OK:
-      Serial.println("Image taken");
+      Serial.println("Fingerprint terdeteksi lagi..");
       break;
     case FINGERPRINT_NOFINGER:
       Serial.print(".");
       break;
     case FINGERPRINT_PACKETRECIEVEERR:
-      Serial.println("Communication error");
-      break;
+      return std::make_tuple(false, p);
     case FINGERPRINT_IMAGEFAIL:
-      Serial.println("Imaging error");
-      break;
+      return std::make_tuple(false, p);
     default:
-      Serial.println("Unknown error");
-      break;
+      return std::make_tuple(false, p);
     }
   }
 
@@ -156,23 +160,18 @@ uint8_t getFingerprintEnroll()
   switch (p)
   {
   case FINGERPRINT_OK:
-    Serial.println("Image converted");
+    Serial.println("Fingerprint dikonvesi lagi");
     break;
   case FINGERPRINT_IMAGEMESS:
-    Serial.println("Image too messy");
-    return p;
+    return std::make_tuple(false, p);
   case FINGERPRINT_PACKETRECIEVEERR:
-    Serial.println("Communication error");
-    return p;
+    return std::make_tuple(false, p);
   case FINGERPRINT_FEATUREFAIL:
-    Serial.println("Could not find fingerprint features");
-    return p;
+    return std::make_tuple(false, p);
   case FINGERPRINT_INVALIDIMAGE:
-    Serial.println("Could not find fingerprint features");
-    return p;
+    return std::make_tuple(false, p);
   default:
-    Serial.println("Unknown error");
-    return p;
+    return std::make_tuple(false, p);
   }
 
   // OK converted!
@@ -182,22 +181,20 @@ uint8_t getFingerprintEnroll()
   p = finger.createModel();
   if (p == FINGERPRINT_OK)
   {
-    Serial.println("Prints matched!");
+    Serial.println("Nice!");
   }
   else if (p == FINGERPRINT_PACKETRECIEVEERR)
   {
-    Serial.println("Communication error");
-    return p;
+    return std::make_tuple(false, p);
   }
   else if (p == FINGERPRINT_ENROLLMISMATCH)
   {
-    Serial.println("Fingerprints not the same!");
-    return p;
+    Serial.println("Jari nya ga sama!");
+    return std::make_tuple(false, p);
   }
   else
   {
-    Serial.println("Unknown error");
-    return p;
+    return std::make_tuple(false, p);
   }
 
   Serial.print("ID ");
@@ -205,52 +202,46 @@ uint8_t getFingerprintEnroll()
   p = finger.storeModel(id);
   if (p == FINGERPRINT_OK)
   {
-    Serial.println("Stored!");
+    Serial.println("Tersimpan!");
+    return std::make_tuple(true, id);
   }
   else if (p == FINGERPRINT_PACKETRECIEVEERR)
   {
-    Serial.println("Communication error");
-    return p;
+    return std::make_tuple(false, p);
   }
   else if (p == FINGERPRINT_BADLOCATION)
   {
-    Serial.println("Could not store in that location");
-    return p;
+    return std::make_tuple(false, p);
   }
   else if (p == FINGERPRINT_FLASHERR)
   {
-    Serial.println("Error writing to flash");
-    return p;
+    return std::make_tuple(false, p);
   }
   else
   {
-    Serial.println("Unknown error");
-    return p;
+    return std::make_tuple(false, p);
   }
 
-  return true;
+  id += 1;
+  return std::make_tuple(true, (uint8_t)(id - 1));
 }
 
-uint8_t getFingerprintID()
+std::tuple<bool, uint8_t> getFingerprintID()
 {
   uint8_t p = finger.getImage();
   switch (p)
   {
   case FINGERPRINT_OK:
-    Serial.println("Image taken");
+    Serial.println("Fingerprint terdeteksi");
     break;
   case FINGERPRINT_NOFINGER:
-    Serial.println("No finger detected");
-    return p;
+    return std::make_tuple(false, p);
   case FINGERPRINT_PACKETRECIEVEERR:
-    Serial.println("Communication error");
-    return p;
+    return std::make_tuple(false, p);
   case FINGERPRINT_IMAGEFAIL:
-    Serial.println("Imaging error");
-    return p;
+    return std::make_tuple(false, p);
   default:
-    Serial.println("Unknown error");
-    return p;
+    return std::make_tuple(false, p);
   }
 
   // OK success!
@@ -259,23 +250,18 @@ uint8_t getFingerprintID()
   switch (p)
   {
   case FINGERPRINT_OK:
-    Serial.println("Image converted");
+    Serial.println("Fingerprint dikonvesi");
     break;
   case FINGERPRINT_IMAGEMESS:
-    Serial.println("Image too messy");
-    return p;
+    return std::make_tuple(false, p);
   case FINGERPRINT_PACKETRECIEVEERR:
-    Serial.println("Communication error");
-    return p;
+    return std::make_tuple(false, p);
   case FINGERPRINT_FEATUREFAIL:
-    Serial.println("Could not find fingerprint features");
-    return p;
+    return std::make_tuple(false, p);
   case FINGERPRINT_INVALIDIMAGE:
-    Serial.println("Could not find fingerprint features");
-    return p;
+    return std::make_tuple(false, p);
   default:
-    Serial.println("Unknown error");
-    return p;
+    return std::make_tuple(false, p);
   }
 
   // OK converted!
@@ -283,67 +269,165 @@ uint8_t getFingerprintID()
   if (p == FINGERPRINT_OK)
   {
     // found a match!
-    Serial.println("Found a print match!");
-    Serial.print("Found ID #");
+    Serial.println("Fingerprint terdaftar dengan ID #");
     Serial.print(finger.fingerID);
-    Serial.print(" with confidence of ");
-    Serial.println(finger.confidence);
-    return finger.fingerID;
+    Serial.print("! tingkat kesamaan : ");
+    Serial.print(finger.confidence);
+    Serial.println("%");
+    return std::make_tuple(true, finger.fingerID);
+  }
+  else if (p == FINGERPRINT_PACKETRECIEVEERR)
+  {
+    return std::make_tuple(false, p);
+  }
+  else if (p == FINGERPRINT_NOTFOUND)
+  {
+    Serial.println("Fingerprint tidak terdaftar");
+    return std::make_tuple(false, p);
+  }
+  else
+  {
+    return std::make_tuple(false, p);
+  }
+}
+
+uint8_t deleteFingerprint(uint8_t id)
+{
+  uint8_t p = -1;
+
+  p = finger.deleteModel(id);
+
+  if (p == FINGERPRINT_OK)
+  {
+    Serial.print("Fingerprint dengan id:");
+    Serial.print(id);
+    Serial.println(", dihapus!");
   }
   else if (p == FINGERPRINT_PACKETRECIEVEERR)
   {
     Serial.println("Communication error");
-    return p;
   }
-  else if (p == FINGERPRINT_NOTFOUND)
+  else if (p == FINGERPRINT_BADLOCATION)
   {
-    Serial.println("Did not find a match");
-    return p;
+    Serial.println("Could not delete in that location");
+  }
+  else if (p == FINGERPRINT_FLASHERR)
+  {
+    Serial.println("Error writing to flash");
   }
   else
   {
-    Serial.println("Unknown error");
-    return p;
+    Serial.print("Unknown error: 0x");
+    Serial.println(p, HEX);
   }
+
+  return p;
 }
 
+void wait_for_fingerprint_to_clear()
+{
+  while (finger.getImage() != FINGERPRINT_NOFINGER)
+    ;
+}
+
+// ====================================== LOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOPPPP =========================================== //
 void loop()
 {
-  if (is_enroll)
+  if (mode == 0)
   {
-    getFingerprintEnroll();
+    std::tuple<bool, uint8_t> result = getFingerprintEnroll();
+    // Check if the fingerprint detects a finger
+    if (!(!std::get<0>(result) && std::get<1>(result) == 2))
+    {
+      if (std::get<0>(result))
+      {
+        digitalWrite(LED1, HIGH);
+      }
+      else
+      {
+        digitalWrite(LED3, HIGH);
+      }
+      digitalWrite(LED2, LOW);
+      wait_for_fingerprint_to_clear();
+    }
   }
-  else
+  else if (mode == 1)
   {
-    getFingerprintID();
+    std::tuple<bool, uint8_t> result = getFingerprintID();
+    if (std::get<0>(result))
+    {
+      wait_for_fingerprint_to_clear();
+    }
+  }
+  else if (mode == 2)
+  {
+    std::tuple<bool, uint8_t> result = getFingerprintID();
+    if (std::get<0>(result))
+    {
+      uint8_t grabbed_id = std::get<1>(result);
+      deleteFingerprint(grabbed_id);
+      wait_for_fingerprint_to_clear();
+    }
   }
 
   if (digitalRead(BTN1))
   {
-    if (!is_btn1_down && millis() > time_btn1_down)
+    if (!is_btn_down && millis() > time_btn_down)
     {
       Serial.print("CHANGE TO ");
-      if (is_enroll)
+      if (mode == 0)
       {
         Serial.println("CHECKING..");
         Serial.println("Ready to check a fingerprint!");
-        is_enroll = false;
+        mode = 1;
       }
-      else
+      else if (mode == 1)
+      {
+        Serial.println("DELETING..");
+        Serial.println("Ready to delete a fingerprint!");
+        mode = 2;
+      }
+      else if (mode == 2)
       {
         Serial.println("ENROLLING..");
         Serial.println("Ready to enroll a fingerprint!");
-        is_enroll = true;
+        mode = 0;
       }
-      is_btn1_down = true;
+      is_btn_down = true;
+    }
+  }
+  if (digitalRead(BTN2))
+  {
+    if (!is_btn_down && millis() > time_btn_down)
+    {
+      Serial.print("CHANGE TO ");
+      if (mode == 0)
+      {
+        Serial.println("CHECKING..");
+        Serial.println("Ready to check a fingerprint!");
+        mode = 1;
+      }
+      else if (mode == 1)
+      {
+        Serial.println("DELETING..");
+        Serial.println("Ready to delete a fingerprint!");
+        mode = 2;
+      }
+      else if (mode == 2)
+      {
+        Serial.println("ENROLLING..");
+        Serial.println("Ready to enroll a fingerprint!");
+        mode = 0;
+      }
+      is_btn_down = true;
     }
   }
   else
   {
-    if (is_btn1_down)
+    if (is_btn_down)
     {
-      time_btn1_down = millis() + 100;
+      time_btn_down = millis() + 100;
     }
-    is_btn1_down = false;
+    is_btn_down = false;
   }
 }
