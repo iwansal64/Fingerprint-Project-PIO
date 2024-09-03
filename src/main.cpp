@@ -2,9 +2,9 @@
 #define BTN1 D5
 #define BTN2 D6
 
-#define LED1 D1
-#define LED2 D4
-#define LED3 D7
+#define LEDG D1
+#define RELY D4
+#define LEDR D7
 
 #include <tuple>
 
@@ -28,9 +28,16 @@ uint8_t mode = 0;
 bool is_btn_down = false;
 uint64_t time_btn_down = 0;
 bool is_ready_for_next = true;
+bool is_relay_on = false;
+bool is_led_blink = false;
+uint64_t time_led = 0;
 
 void setup()
 {
+  pinMode(RELY, OUTPUT);
+  pinMode(LEDR, OUTPUT);
+  pinMode(LEDG, OUTPUT);
+
   Serial.begin(9600);
   while (!Serial)
     ; // DON'T KNOW BUT IT'S IMPORTANT!
@@ -232,7 +239,6 @@ std::tuple<bool, uint8_t> getFingerprintID()
   switch (p)
   {
   case FINGERPRINT_OK:
-    Serial.println("Fingerprint terdeteksi");
     break;
   case FINGERPRINT_NOFINGER:
     return std::make_tuple(false, p);
@@ -250,7 +256,6 @@ std::tuple<bool, uint8_t> getFingerprintID()
   switch (p)
   {
   case FINGERPRINT_OK:
-    Serial.println("Fingerprint dikonvesi");
     break;
   case FINGERPRINT_IMAGEMESS:
     return std::make_tuple(false, p);
@@ -269,11 +274,6 @@ std::tuple<bool, uint8_t> getFingerprintID()
   if (p == FINGERPRINT_OK)
   {
     // found a match!
-    Serial.println("Fingerprint terdaftar dengan ID #");
-    Serial.print(finger.fingerID);
-    Serial.print("! tingkat kesamaan : ");
-    Serial.print(finger.confidence);
-    Serial.println("%");
     return std::make_tuple(true, finger.fingerID);
   }
   else if (p == FINGERPRINT_PACKETRECIEVEERR)
@@ -282,7 +282,6 @@ std::tuple<bool, uint8_t> getFingerprintID()
   }
   else if (p == FINGERPRINT_NOTFOUND)
   {
-    Serial.println("Fingerprint tidak terdaftar");
     return std::make_tuple(false, p);
   }
   else
@@ -291,7 +290,7 @@ std::tuple<bool, uint8_t> getFingerprintID()
   }
 }
 
-uint8_t deleteFingerprint(uint8_t id)
+std::tuple<bool, uint8_t> deleteFingerprint(uint8_t id)
 {
   uint8_t p = -1;
 
@@ -299,29 +298,24 @@ uint8_t deleteFingerprint(uint8_t id)
 
   if (p == FINGERPRINT_OK)
   {
-    Serial.print("Fingerprint dengan id:");
-    Serial.print(id);
-    Serial.println(", dihapus!");
+    return std::make_tuple(true, id);
   }
   else if (p == FINGERPRINT_PACKETRECIEVEERR)
   {
-    Serial.println("Communication error");
+    return std::make_tuple(false, p);
   }
   else if (p == FINGERPRINT_BADLOCATION)
   {
-    Serial.println("Could not delete in that location");
+    return std::make_tuple(false, p);
   }
   else if (p == FINGERPRINT_FLASHERR)
   {
-    Serial.println("Error writing to flash");
+    return std::make_tuple(false, p);
   }
   else
   {
-    Serial.print("Unknown error: 0x");
-    Serial.println(p, HEX);
+    return std::make_tuple(false, p);
   }
-
-  return p;
 }
 
 void wait_for_fingerprint_to_clear()
@@ -337,18 +331,15 @@ void loop()
   {
     std::tuple<bool, uint8_t> result = getFingerprintEnroll();
     // Check if the fingerprint detects a finger
-    if (!(!std::get<0>(result) && std::get<1>(result) == 2))
+    if (std::get<1>(result) != FINGERPRINT_NOFINGER)
     {
-      if (std::get<0>(result))
-      {
-        digitalWrite(LED1, HIGH);
-      }
-      else
-      {
-        digitalWrite(LED3, HIGH);
-      }
-      digitalWrite(LED2, LOW);
       wait_for_fingerprint_to_clear();
+    }
+    else if (millis() > time_led)
+    {
+      is_led_blink = !is_led_blink;
+      digitalWrite(LEDG, is_led_blink);
+      time_led = millis() + 1000;
     }
   }
   else if (mode == 1)
@@ -356,7 +347,28 @@ void loop()
     std::tuple<bool, uint8_t> result = getFingerprintID();
     if (std::get<0>(result))
     {
+      Serial.print("Fingerprint terdaftar dengan ID #");
+      Serial.println(finger.fingerID);
+      Serial.print("Tingkat kesamaan : ");
+      Serial.print(finger.confidence);
+      Serial.println("%");
+
+      is_relay_on = !is_relay_on;
+      digitalWrite(RELY, is_relay_on);
+      Serial.print("is_relay_on :");
+      Serial.println(is_relay_on);
       wait_for_fingerprint_to_clear();
+    }
+    else if (std::get<1>(result) == FINGERPRINT_NOTFOUND)
+    {
+      Serial.println("Fingerprint tidak terdaftar");
+      wait_for_fingerprint_to_clear();
+    }
+    else if (millis() > time_led)
+    {
+      is_led_blink = !is_led_blink;
+      digitalWrite(LEDR, is_led_blink);
+      time_led = millis() + 1000;
     }
   }
   else if (mode == 2)
@@ -366,7 +378,14 @@ void loop()
     {
       uint8_t grabbed_id = std::get<1>(result);
       deleteFingerprint(grabbed_id);
+      Serial.print("Fingerprint dengan id #");
+      Serial.print(grabbed_id);
+      Serial.println(" dihapus!");
       wait_for_fingerprint_to_clear();
+    }
+    else
+    {
+      digitalWrite(LEDR, HIGH);
     }
   }
 
@@ -394,6 +413,8 @@ void loop()
         mode = 0;
       }
       is_btn_down = true;
+      digitalWrite(LEDG, LOW);
+      digitalWrite(LEDR, LOW);
     }
   }
   if (digitalRead(BTN2))
@@ -420,6 +441,8 @@ void loop()
         mode = 0;
       }
       is_btn_down = true;
+      digitalWrite(LEDG, LOW);
+      digitalWrite(LEDR, LOW);
     }
   }
   else
